@@ -1,9 +1,9 @@
 export const firebaseConfig = {
-  apiKey: "AIzaSyCCRrycVczGmSP_up0VKSvfIxew8nRzU_M",
-  authDomain: "habithub-backend.firebaseapp.com",
-  projectId: "habithub-backend",
-  storageBucket: "habithub-backend.firebasestorage.app",
-  messagingSenderId: "961006306154",
-  appId: "1:961006306154:web:cbcdd6c73c6f6106535b13",
-  measurementId: "G-S46XLPRRWQ",
+  apiKey: "AIzaSyCbA-6OOzyGp5NYS6oFdsE_2aSfsS-GMF8",
+  authDomain: "habithub-7727a.firebaseapp.com",
+  projectId: "habithub-7727a",
+  storageBucket: "habithub-7727a.firebasestorage.app",
+  messagingSenderId: "92827491434",
+  appId: "1:92827491434:web:111171c2848e4a8e687e13",
+  measurementId: "G-YGJDRVZQ5K",
 };

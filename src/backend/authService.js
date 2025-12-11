@@ -1,23 +1,37 @@
 import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
 } from "firebase/auth";
-import { auth } from "./firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 
-// this is for new user registration
-export async function registerUser(email, password) {
+// register
+export const registerUser = async (email, password) => {
+  console.log("registerUser called with:", email);
+
   const cred = await createUserWithEmailAndPassword(auth, email, password);
-  return cred.user; // has uid, email, etc.
-}
+  const user = cred.user;
 
-// this should login an exisitng user
-export async function loginUser(email, password) {
-  const cred = await signInWithEmailAndPassword(auth, password);
+  // create user doc in Firestore
+  await setDoc(doc(db, "users", user.uid), {
+    email: user.email,
+    createdAt: Date.now(),
+  });
+
+  console.log("Firestore user doc created:", user.uid);
+  return user;
+};
+
+//login
+export const loginUser = async (email, password) => {
+  console.log("loginUser called with:", email);
+  const cred = await signInWithEmailAndPassword(auth, email, password);
   return cred.user;
-}
+};
 
-// this is just logout
-export async function logoutUser() {
+// logout
+export const logoutUser = async () => {
+  console.log("Logging out current user");
   await signOut(auth);
-}
+};

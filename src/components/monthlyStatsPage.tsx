@@ -1,20 +1,150 @@
-import React from "react";
-import { SafeAreaView, StyleSheet, Text, View, ScrollView } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Navbar from "./Navbar";
+import { getLogsForRange } from "../backend/habitService";
 
-const MonthlyStatsPage = () => {
-  // Hardcoded data for frontend
-  const completedHabits = 18;
-  const totalHabits = 24;
-  const completionRate = Math.round((completedHabits / totalHabits) * 100);
-  const bestDay = "December 5th";
-  const bestDayTasks = "10/10";
+type HabitLog = {
+  id: string;
+  habitId: string;
+  userId: string;
+  date: string; // "YYYY-MM-DD"
+  completedCount?: number;
+  isCompleted?: boolean;
+};
 
-  // Data for pie chart visualization
-  const completed = completedHabits;
-  const incomplete = totalHabits - completedHabits;
-  const completedPercentage = (completed / totalHabits) * 100;
+const MonthlyStatsPage: React.FC = () => {
+  const [completedTasks, setCompletedTasks] = useState(0);
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [completionRate, setCompletionRate] = useState(0);
+  const [bestDay, setBestDay] = useState<string | null>(null);
+  const [bestDayTasks, setBestDayTasks] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+
+  // month label based on current date
+  const now = new Date();
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const monthLabel = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+
+  // for pie chart
+  const completed = completedTasks;
+  const incomplete = Math.max(totalTasks - completedTasks, 0);
+  const completedPercentage =
+    totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+  useEffect(() => {
+    const loadMonthlyStats = async () => {
+      try {
+        setLoading(true);
+        // start = first day of this month
+        const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        // end = last day of this month
+        const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+        const logs = (await getLogsForRange(startDate, endDate)) as HabitLog[];
+
+        if (!logs || logs.length === 0) {
+          setCompletedTasks(0);
+          setTotalTasks(0);
+          setCompletionRate(0);
+          setBestDay(null);
+          setBestDayTasks(0);
+          return;
+        }
+
+        // Count tasks:
+        // - totalTasks: all logged actions (completed or not)
+        // - completedTasks: logs where isCompleted === true
+        let total = 0;
+        let completedCount = 0;
+
+        //for best-day calculation
+        const completedPerDay: Record<string, number> = {};
+
+        logs.forEach((log) => {
+          const count =
+            typeof log.completedCount === "number" && log.completedCount > 0
+              ? log.completedCount
+              : 1;
+
+          total += count;
+
+          if (log.isCompleted) {
+            completedCount += count;
+
+            if (!completedPerDay[log.date]) {
+              completedPerDay[log.date] = 0;
+            }
+            completedPerDay[log.date] += count;
+          }
+        });
+
+        setTotalTasks(total);
+        setCompletedTasks(completedCount);
+        setCompletionRate(
+          total > 0 ? Math.round((completedCount / total) * 100) : 0
+        );
+
+        // find best day (max completed count)
+        let bestDayDate: string | null = null;
+        let bestDayCount = 0;
+
+        Object.entries(completedPerDay).forEach(([date, count]) => {
+          if (count > bestDayCount) {
+            bestDayCount = count;
+            bestDayDate = date;
+          }
+        });
+
+        if (bestDayDate) {
+          const [yearStr, monthStr, dayStr] = bestDayDate.split("-");
+          const y = parseInt(yearStr, 10);
+          const m = parseInt(monthStr, 10) - 1;
+          const d = parseInt(dayStr, 10);
+
+          const dateObj = new Date(y, m, d);
+          const formatted = `${monthNames[dateObj.getMonth()]} ${d}`;
+          setBestDay(formatted);
+          setBestDayTasks(bestDayCount);
+        } else {
+          setBestDay(null);
+          setBestDayTasks(0);
+        }
+      } catch (err) {
+        console.error("Error loading monthly stats:", err);
+        setCompletedTasks(0);
+        setTotalTasks(0);
+        setCompletionRate(0);
+        setBestDay(null);
+        setBestDayTasks(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMonthlyStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -22,122 +152,161 @@ const MonthlyStatsPage = () => {
         <View style={styles.container}>
           {/* Header */}
           <Text style={styles.title}>Monthly Stats</Text>
-          <Text style={styles.monthLabel}>December 2025</Text>
+          <Text style={styles.monthLabel}>{monthLabel}</Text>
 
-          {/* Completion Overview Card */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Habit Completion</Text>
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>
-                  {completedHabits}/{totalHabits}
-                </Text>
-                <Text style={styles.statLabel}>Tasks Completed</Text>
-              </View>
-              <View style={styles.divider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{completionRate}%</Text>
-                <Text style={styles.statLabel}>Completion Rate</Text>
-              </View>
+          {loading ? (
+            <View style={{ marginTop: 40, alignItems: "center" }}>
+              <ActivityIndicator size="large" color="#FF8719" />
+              <Text style={{ marginTop: 8, color: "#606162" }}>
+                Loading your stats...
+              </Text>
             </View>
-          </View>
-
-          {/* Pie Chart Visualization */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Monthly Overview</Text>
-            <View style={styles.chartContainer}>
-              {/* Simple Pie Chart using circles */}
-              <View style={styles.pieChart}>
-                {/* Completed portion (orange) */}
-                <View
-                  style={[
-                    styles.pieSlice,
-                    styles.pieCompleted,
-                    {
-                      transform: [
-                        { rotate: "0deg" },
-                        {
-                          scaleX:
-                            completedPercentage > 50
-                              ? 1
-                              : completedPercentage / 50,
-                        },
-                      ],
-                    },
-                  ]}
-                />
-                {/* Incomplete portion (gray) */}
-                <View
-                  style={[
-                    styles.pieSlice,
-                    styles.pieIncomplete,
-                    {
-                      transform: [
-                        { rotate: `${(completedPercentage / 100) * 360}deg` },
-                      ],
-                    },
-                  ]}
-                />
-                {/* Center white circle to create donut effect */}
-                <View style={styles.pieCenter}>
-                  <Text style={styles.pieCenterText}>{completionRate}%</Text>
+          ) : (
+            <>
+              {/* Completion Overview Card */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Habit Completion</Text>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>
+                      {completedTasks}/{totalTasks}
+                    </Text>
+                    <Text style={styles.statLabel}>Tasks Completed</Text>
+                  </View>
+                  <View style={styles.divider} />
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>{completionRate}%</Text>
+                    <Text style={styles.statLabel}>Completion Rate</Text>
+                  </View>
                 </View>
               </View>
 
-              {/* Legend */}
-              <View style={styles.legend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, styles.legendCompleted]} />
-                  <Text style={styles.legendText}>Completed ({completed})</Text>
+              {/* Pie Chart Visualization */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Monthly Overview</Text>
+                <View style={styles.chartContainer}>
+                  {/* Simple Pie Chart using circles */}
+                  <View style={styles.pieChart}>
+                    {/* Completed portion (orange) */}
+                    <View
+                      style={[
+                        styles.pieSlice,
+                        styles.pieCompleted,
+                        {
+                          transform: [
+                            { rotate: "0deg" },
+                            {
+                              scaleX:
+                                completedPercentage > 50
+                                  ? 1
+                                  : completedPercentage / 50 || 0,
+                            },
+                          ],
+                        },
+                      ]}
+                    />
+                    {/* Incomplete portion (gray) */}
+                    <View
+                      style={[
+                        styles.pieSlice,
+                        styles.pieIncomplete,
+                        {
+                          transform: [
+                            {
+                              rotate: `${(completedPercentage / 100) * 360}deg`,
+                            },
+                          ],
+                        },
+                      ]}
+                    />
+                    {/* Center white circle to create donut effect */}
+                    <View style={styles.pieCenter}>
+                      <Text style={styles.pieCenterText}>
+                        {completionRate}%
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Legend */}
+                  <View style={styles.legend}>
+                    <View style={styles.legendItem}>
+                      <View
+                        style={[styles.legendDot, styles.legendCompleted]}
+                      />
+                      <Text style={styles.legendText}>
+                        Completed ({completedTasks})
+                      </Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View
+                        style={[styles.legendDot, styles.legendIncomplete]}
+                      />
+                      <Text style={styles.legendText}>
+                        Incomplete ({incomplete})
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, styles.legendIncomplete]} />
-                  <Text style={styles.legendText}>
-                    Incomplete ({incomplete})
+              </View>
+
+              {/* Best Day Card */}
+              <View style={styles.card}>
+                <View style={styles.bestDayHeader}>
+                  <Ionicons name="trophy" size={24} color="#FFD700" />
+                  <Text style={styles.cardTitle}>Best Day This Month</Text>
+                </View>
+                <View style={styles.bestDayContent}>
+                  {bestDay ? (
+                    <>
+                      <Text style={styles.bestDayDate}>{bestDay}</Text>
+                      <Text style={styles.bestDayTasks}>
+                        {bestDayTasks} tasks completed
+                      </Text>
+                      <View style={styles.perfectScore}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={20}
+                          color="#4CAF50"
+                        />
+                        <Text style={styles.perfectScoreText}>
+                          Great job! 🎉
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.bestDayTasks}>
+                      No completed tasks yet this month. Start a streak!
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {/* Additional */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  This Month&apos;s Highlights
+                </Text>
+                <View style={styles.highlightItem}>
+                  <Ionicons name="flame" size={20} color="#FF8719" />
+                  <Text style={styles.highlightText}>
+                    Keep completing tasks to build your longest streak!
+                  </Text>
+                </View>
+                <View style={styles.highlightItem}>
+                  <Ionicons name="trending-up" size={20} color="#4CAF50" />
+                  <Text style={styles.highlightText}>
+                    Check back here to see how your consistency improves.
+                  </Text>
+                </View>
+                <View style={styles.highlightItem}>
+                  <Ionicons name="star" size={20} color="#FFD700" />
+                  <Text style={styles.highlightText}>
+                    Aim for more high-completion days this month.
                   </Text>
                 </View>
               </View>
-            </View>
-          </View>
-
-          {/* Best Day Card */}
-          <View style={styles.card}>
-            <View style={styles.bestDayHeader}>
-              <Ionicons name="trophy" size={24} color="#FFD700" />
-              <Text style={styles.cardTitle}>Best Day This Month</Text>
-            </View>
-            <View style={styles.bestDayContent}>
-              <Text style={styles.bestDayDate}>{bestDay}</Text>
-              <Text style={styles.bestDayTasks}>
-                {bestDayTasks} tasks completed
-              </Text>
-              <View style={styles.perfectScore}>
-                <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-                <Text style={styles.perfectScoreText}>Perfect Day! 🎉</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Additional Stats */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>This Month&apos;s Highlights</Text>
-            <View style={styles.highlightItem}>
-              <Ionicons name="flame" size={20} color="#FF8719" />
-              <Text style={styles.highlightText}>
-                5-day streak (longest this month)
-              </Text>
-            </View>
-            <View style={styles.highlightItem}>
-              <Ionicons name="trending-up" size={20} color="#4CAF50" />
-              <Text style={styles.highlightText}>
-                25% improvement from last month
-              </Text>
-            </View>
-            <View style={styles.highlightItem}>
-              <Ionicons name="star" size={20} color="#FFD700" />
-              <Text style={styles.highlightText}>3 perfect days achieved</Text>
-            </View>
-          </View>
+            </>
+          )}
         </View>
       </ScrollView>
       <Navbar />
@@ -301,6 +470,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#606162",
     marginBottom: 12,
+    textAlign: "center",
   },
   perfectScore: {
     flexDirection: "row",

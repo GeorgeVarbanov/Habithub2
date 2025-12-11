@@ -1,8 +1,7 @@
-// src/components/homePage.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   SafeAreaView,
@@ -13,71 +12,37 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import Navbar from "./Navbar";
+import {
+  getHabits,
+  createHabit,
+  updateHabit as updateHabitService,
+  archiveHabit as archiveHabitService,
+  completeHabitToday,
+  getLogsForDate,
+} from "../backend/habitService";
 
 type ScheduleType = "daily" | "weekly" | "monthly" | "once";
 
 type Habit = {
-  id: number;
+  id: string;
   title: string;
   time: string;
   steps: string[];
   completed: boolean;
   scheduleType: ScheduleType;
-  dayOfWeek?: string;   // for weekly/monthly display
-  customDate?: string;  // for one-time habits like 12/7/25
+  dayOfWeek?: string;
+  customDate?: string;
   remindersEnabled: boolean;
 };
 
-const initialHabits: Habit[] = [
-  {
-    id: 1,
-    title: "Tidy up room",
-    time: "12:15 AM",
-    steps: ["Fix bed", "Clean trash", "Lint roll sheets"],
-    completed: true,
-    scheduleType: "daily",
-    remindersEnabled: true,
-  },
-  {
-    id: 2,
-    title: "Study for Cloud Computing Final Exam",
-    time: "1:35 PM",
-    steps: [
-      "Review ACLS notes (weeks 7–14)",
-      "Check recent labs",
-      "Review final project requirements",
-    ],
-    completed: false,
-    scheduleType: "weekly",
-    dayOfWeek: "Thursday",
-    remindersEnabled: true,
-  },
-  {
-    id: 3,
-    title: "Gym workout",
-    time: "6:00 PM",
-    steps: ["Upper body workout", "Stretch 10 minutes"],
-    completed: false,
-    scheduleType: "monthly",
-    dayOfWeek: "Tuesday",
-    remindersEnabled: false,
-  },
-  {
-    id: 4,
-    title: "Doctor appointment",
-    time: "9:30 AM",
-    steps: ["Bring health card", "Arrive 15 minutes early"],
-    completed: false,
-    scheduleType: "once",
-    customDate: "12/7/25",
-    remindersEnabled: true,
-  },
-];
-
 const HomePage: React.FC = () => {
-  const [habits, setHabits] = useState<Habit[]>(initialHabits);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [isAddVisible, setIsAddVisible] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
 
@@ -102,6 +67,8 @@ const HomePage: React.FC = () => {
 
   // header date from phone
   const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10); // "YYYY-MM-DD"
+
   const monthNames = [
     "January",
     "February",
@@ -126,12 +93,54 @@ const HomePage: React.FC = () => {
     "Saturday",
   ];
 
-  const headerMonthText = `${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+  const headerMonthText = `${
+    monthNames[today.getMonth()]
+  } ${today.getFullYear()}`;
   const headerDayText = `${dayNames[today.getDay()]} | ${today.getDate()}`;
 
-  // -------------------------
-  // HABIT FORM FUNCTIONS
-  // -------------------------
+  const loadHabits = async () => {
+    try {
+      setLoading(true);
+
+      const [habitsFromDb, logsToday] = await Promise.all([
+        getHabits(),
+        getLogsForDate(todayStr),
+      ]);
+
+      const completedSet = new Set(
+        logsToday
+          .filter((log: any) => log.isCompleted)
+          .map((log: any) => log.habitId)
+      );
+
+      const mapped: Habit[] = habitsFromDb.map((h: any) => {
+        return {
+          id: h.id,
+          title: h.title || "Untitled habit",
+          time: h.time || "Any time",
+          steps: Array.isArray(h.steps) ? h.steps : [],
+          completed: completedSet.has(h.id),
+          scheduleType: (h.scheduleType as ScheduleType) || "daily",
+          dayOfWeek: h.dayOfWeek || undefined,
+          customDate: h.customDate || undefined,
+          remindersEnabled:
+            typeof h.remindersEnabled === "boolean" ? h.remindersEnabled : true,
+        };
+      });
+
+      setHabits(mapped);
+    } catch (err) {
+      console.error("Error loading habits:", err);
+      Alert.alert("Error", "Failed to load habits. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHabits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const resetFormToDefaults = () => {
     setFormTitle("");
@@ -175,78 +184,144 @@ const HomePage: React.FC = () => {
 
   const closeEditHabit = () => setEditingHabit(null);
 
-  const handleToggleComplete = (id: number) => {
-    setHabits((prev) =>
-      prev.map((h) =>
-        h.id === id ? { ...h, completed: !h.completed } : h
-      )
-    );
+  const handleToggleComplete = async (
+    id: string,
+    currentlyCompleted: boolean
+  ) => {
+    try {
+      // only write a log when marking as completed
+      if (!currentlyCompleted) {
+        await completeHabitToday(id, {
+          completedCount: 1,
+          isCompleted: true,
+        });
+      }
+      setHabits((prev) =>
+        prev.map((h) => (h.id === id ? { ...h, completed: !h.completed } : h))
+      );
+    } catch (err) {
+      console.error("Error completing habit:", err);
+      Alert.alert("Error", "Failed to update completion. Please try again.");
+    }
   };
 
-  const handleSaveAdd = () => {
+  const handleSaveAdd = async () => {
     if (!formTitle.trim()) return;
 
-    const newHabit: Habit = {
-      id: habits.length ? Math.max(...habits.map((h) => h.id)) + 1 : 1,
-      title: formTitle.trim(),
-      time: formTime.trim() || "Any time",
-      steps: formSteps
+    try {
+      const stepsArray = formSteps
         .split("\n")
         .map((s) => s.trim())
-        .filter(Boolean),
-      completed: false,
-      scheduleType: formScheduleType,
-      dayOfWeek:
-        formScheduleType === "weekly" || formScheduleType === "monthly"
-          ? formDayOfWeek
-          : undefined,
-      customDate: formScheduleType === "once" ? formOnceDate.trim() : undefined,
-      remindersEnabled: formRemindersEnabled,
-    };
+        .filter(Boolean);
 
-    setHabits((prev) => [...prev, newHabit]);
-    closeAddHabit();
+      const time = formTime.trim() || "Any time";
+
+      const newHabitData = {
+        title: formTitle.trim(),
+        description: "",
+        scheduleType: formScheduleType,
+        dayOfWeek:
+          formScheduleType === "weekly" || formScheduleType === "monthly"
+            ? formDayOfWeek
+            : null,
+        customDate: formScheduleType === "once" ? formOnceDate.trim() : null,
+        remindersEnabled: formRemindersEnabled,
+        time,
+        steps: stepsArray,
+      };
+
+      const newId = await createHabit(newHabitData);
+
+      const newHabit: Habit = {
+        id: newId,
+        title: newHabitData.title,
+        time: time,
+        steps: stepsArray,
+        completed: false,
+        scheduleType: formScheduleType,
+        dayOfWeek:
+          formScheduleType === "weekly" || formScheduleType === "monthly"
+            ? formDayOfWeek
+            : undefined,
+        customDate:
+          formScheduleType === "once" ? formOnceDate.trim() : undefined,
+        remindersEnabled: formRemindersEnabled,
+      };
+
+      setHabits((prev) => [...prev, newHabit]);
+      closeAddHabit();
+    } catch (err) {
+      console.error("Error creating habit:", err);
+      Alert.alert("Error", "Failed to save habit. Please try again.");
+    }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingHabit || !formTitle.trim()) return;
 
-    setHabits((prev) =>
-      prev.map((h) =>
-        h.id === editingHabit.id
-          ? {
-              ...h,
-              title: formTitle.trim(),
-              time: formTime.trim() || h.time,
-              steps: formSteps
-                .split("\n")
-                .map((s) => s.trim())
-                .filter(Boolean),
-              scheduleType: formScheduleType,
-              dayOfWeek:
-                formScheduleType === "weekly" ||
-                formScheduleType === "monthly"
-                  ? formDayOfWeek
-                  : undefined,
-              customDate:
-                formScheduleType === "once" ? formOnceDate.trim() : undefined,
-              remindersEnabled: formRemindersEnabled,
-            }
-          : h
-      )
-    );
-    closeEditHabit();
+    try {
+      const stepsArray = formSteps
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const time = formTime.trim() || editingHabit.time;
+
+      const updates: any = {
+        title: formTitle.trim(),
+        time,
+        steps: stepsArray,
+        scheduleType: formScheduleType,
+        dayOfWeek:
+          formScheduleType === "weekly" || formScheduleType === "monthly"
+            ? formDayOfWeek
+            : null,
+        customDate: formScheduleType === "once" ? formOnceDate.trim() : null,
+        remindersEnabled: formRemindersEnabled,
+      };
+
+      await updateHabitService(editingHabit.id, updates);
+
+      setHabits((prev) =>
+        prev.map((h) =>
+          h.id === editingHabit.id
+            ? {
+                ...h,
+                title: updates.title,
+                time: updates.time,
+                steps: stepsArray,
+                scheduleType: formScheduleType,
+                dayOfWeek:
+                  formScheduleType === "weekly" ||
+                  formScheduleType === "monthly"
+                    ? formDayOfWeek
+                    : undefined,
+                customDate:
+                  formScheduleType === "once" ? formOnceDate.trim() : undefined,
+                remindersEnabled: formRemindersEnabled,
+              }
+            : h
+        )
+      );
+
+      closeEditHabit();
+    } catch (err) {
+      console.error("Error updating habit:", err);
+      Alert.alert("Error", "Failed to update habit. Please try again.");
+    }
   };
 
-  const handleDeleteHabit = () => {
+  const handleDeleteHabit = async () => {
     if (!editingHabit) return;
-    setHabits((prev) => prev.filter((h) => h.id !== editingHabit.id));
-    closeEditHabit();
+    try {
+      await archiveHabitService(editingHabit.id);
+      setHabits((prev) => prev.filter((h) => h.id !== editingHabit.id));
+      closeEditHabit();
+    } catch (err) {
+      console.error("Error archiving habit:", err);
+      Alert.alert("Error", "Failed to remove habit. Please try again.");
+    }
   };
-
-  // -------------------------
-  // TIME PICKER
-  // -------------------------
 
   const openTimePicker = () => setIsTimePickerVisible(true);
   const closeTimePicker = () => setIsTimePickerVisible(false);
@@ -256,10 +331,6 @@ const HomePage: React.FC = () => {
     setFormTime(t);
     closeTimePicker();
   };
-
-  // -------------------------
-  // RENDER HELPERS
-  // -------------------------
 
   const renderSchedulePills = (habit: Habit) => {
     switch (habit.scheduleType) {
@@ -352,7 +423,7 @@ const HomePage: React.FC = () => {
       {/* Custom date for one-time */}
       {formScheduleType === "once" && (
         <TextInput
-          placeholder="Date (e.g. 12/7/25)"
+          placeholder="Date (e.g. 2025-12-07)"
           placeholderTextColor="#999"
           style={styles.modalInput}
           value={formOnceDate}
@@ -372,8 +443,6 @@ const HomePage: React.FC = () => {
       </View>
     </>
   );
-
-  // -------------------------
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -399,20 +468,33 @@ const HomePage: React.FC = () => {
               </View>
             </LinearGradient>
 
-            {/* HABIT CARDS */}
-            {habits.map((habit, index) => (
-              <View key={habit.id} style={styles.habitCard}>
-                <View style={styles.habitHeaderRow}>
-                  <Text style={styles.habitIndex}>#{index + 1}</Text>
-                  <Text style={styles.habitTitle}>{habit.title}</Text>
+            {loading ? (
+              <View style={{ marginTop: 40, alignItems: "center" }}>
+                <ActivityIndicator size="large" color="#FF8719" />
+                <Text style={{ marginTop: 8, color: "#606162" }}>
+                  Loading your habits...
+                </Text>
+              </View>
+            ) : habits.length === 0 ? (
+              <View style={{ marginTop: 40 }}>
+                <Text style={{ color: "#606162", textAlign: "center" }}>
+                  No habits yet. Tap the + button to add your first habit!
+                </Text>
+              </View>
+            ) : (
+              habits.map((habit, index) => (
+                <View key={habit.id} style={styles.habitCard}>
+                  <View style={styles.habitHeaderRow}>
+                    <Text style={styles.habitIndex}>#{index + 1}</Text>
+                    <Text style={styles.habitTitle}>{habit.title}</Text>
 
-                  <View style={styles.rightPillColumn}>
-                    <View style={styles.timePill}>
-                      <Text style={styles.timeText}>{habit.time}</Text>
+                    <View style={styles.rightPillColumn}>
+                      <View style={styles.timePill}>
+                        <Text style={styles.timeText}>{habit.time}</Text>
+                      </View>
+                      {renderSchedulePills(habit)}
                     </View>
-                    {renderSchedulePills(habit)}
                   </View>
-                </View>
 
                   {habit.steps.length > 0 && (
                     <View style={styles.stepsContainer}>
@@ -424,62 +506,64 @@ const HomePage: React.FC = () => {
                     </View>
                   )}
 
+                  <View style={styles.cardBottomRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() =>
+                        handleToggleComplete(habit.id, habit.completed)
+                      }
+                    >
+                      {habit.completed ? (
+                        <LinearGradient
+                          colors={["#FDCFA4", "#FFCBC5"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.completedPill}
+                        >
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color="#FFFFFF"
+                            style={{ marginRight: 6 }}
+                          />
+                          <Text style={styles.completedText}>Completed!</Text>
+                        </LinearGradient>
+                      ) : (
+                        <LinearGradient
+                          colors={["#FF8719", "#FF6A5B"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.completePill}
+                        >
+                          <Text style={styles.completeText}>Complete</Text>
+                        </LinearGradient>
+                      )}
+                    </TouchableOpacity>
 
-                <View style={styles.cardBottomRow}>
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={() => handleToggleComplete(habit.id)}
-                  >
-                    {habit.completed ? (
-                      <LinearGradient
-                        colors={["#FDCFA4", "#FFCBC5"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.completedPill}
+                    <View style={styles.cardRightControls}>
+                      {habit.remindersEnabled && (
+                        <Ionicons
+                          name="notifications"
+                          size={18}
+                          color="#FF8719"
+                          style={styles.reminderIcon}
+                        />
+                      )}
+                      <TouchableOpacity
+                        onPress={() => openEditHabit(habit)}
+                        style={styles.gearButton}
                       >
                         <Ionicons
-                          name="checkmark"
-                          size={18}
-                          color="#FFFFFF"
-                          style={{ marginRight: 6 }}
+                          name="settings-outline"
+                          size={20}
+                          color="#606162"
                         />
-                        <Text style={styles.completedText}>Completed!</Text>
-                      </LinearGradient>
-                    ) : (
-                      <LinearGradient
-                        colors={["#FF8719", "#FF6A5B"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.completePill}
-                      >
-                        <Text style={styles.completeText}>Complete</Text>
-                      </LinearGradient>
-                    )}
-                  </TouchableOpacity>
-
-                  <View style={styles.cardRightControls}>
-                    {habit.remindersEnabled && (
-                      <Ionicons
-                        name="notifications"
-                        size={18}
-                        color="#FF8719"
-                        style={styles.reminderIcon}
-                      />
-                    )}
-                    <TouchableOpacity
-                      onPress={() => openEditHabit(habit)}
-                      style={styles.gearButton}
-                    >
-                      <Ionicons
-                        name="settings-outline"
-                        size={20}
-                        color="#606162"
-                      />
-                    </TouchableOpacity>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              ))
+            )}
           </View>
         </ScrollView>
 
@@ -695,9 +779,7 @@ const HomePage: React.FC = () => {
               {/* AM/PM */}
               <Picker
                 selectedValue={selectedAmpm}
-                onValueChange={(v) =>
-                  setSelectedAmpm(v === "PM" ? "PM" : "AM")
-                }
+                onValueChange={(v) => setSelectedAmpm(v === "PM" ? "PM" : "AM")}
                 style={styles.wheelPicker}
               >
                 <Picker.Item label="AM" value="AM" />
@@ -726,10 +808,6 @@ const HomePage: React.FC = () => {
 };
 
 export default HomePage;
-
-/* ---------------------------------------------------------
-   STYLES
---------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   safeArea: {

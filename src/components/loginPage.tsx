@@ -1,7 +1,7 @@
-// src/components/loginPage.tsx
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
+  Alert,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -9,8 +9,38 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { loginUser } from "../backend/authService";
 
 const LoginPage: React.FC = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Missing info", "Please enter your email and password.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log("Logging in with:", email);
+      const user = await loginUser(email.trim(), password);
+      console.log("Logged in user:", user.uid);
+
+      // after successful login, go to home
+      router.replace("/home");
+    } catch (err: any) {
+      console.error("Login error:", err);
+      Alert.alert(
+        "Login failed",
+        err?.message || "Could not sign in. Please check your credentials."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
@@ -20,6 +50,10 @@ const LoginPage: React.FC = () => {
           placeholder="Email"
           style={styles.input}
           placeholderTextColor="#999"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
         />
 
         <TextInput
@@ -27,14 +61,19 @@ const LoginPage: React.FC = () => {
           style={styles.input}
           secureTextEntry
           placeholderTextColor="#999"
+          value={password}
+          onChangeText={setPassword}
         />
 
-        {/* LOGIN BUTTON → goes to /home */}
+        {/* LOGIN BUTTON → calls firebase then goes to /home */}
         <TouchableOpacity
           style={[styles.button, styles.loginButton]}
-          onPress={() => router.push("/home")}
+          onPress={handleLogin}
+          disabled={loading}
         >
-          <Text style={styles.loginText}>Login</Text>
+          <Text style={styles.loginText}>
+            {loading ? "Logging in..." : "Login"}
+          </Text>
         </TouchableOpacity>
 
         {/* BACK BUTTON → goes to Welcome */}
@@ -73,8 +112,6 @@ const styles = StyleSheet.create({
     color: "#333",
   },
 
-  /* ---------- BUTTONS ---------- */
-
   button: {
     marginTop: 12,
     paddingVertical: 14,
@@ -86,7 +123,6 @@ const styles = StyleSheet.create({
     color: "#606162",
   },
 
-  /* LOGIN BUTTON (Orange) */
   loginButton: {
     backgroundColor: "#FF8719",
     marginTop: 20,

@@ -1,7 +1,7 @@
-// src/components/registerPage.tsx
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
+  Alert,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -9,8 +9,48 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { registerUser } from "../backend/authService"; // firebase
 
 const RegisterPage: React.FC = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleRegister = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Missing info", "Please enter an email and password.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert("Password mismatch", "Passwords do not match.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log("Calling registerUser with:", email);
+      const user = await registerUser(email.trim(), password);
+      console.log("Registered user:", user.uid);
+
+      Alert.alert("Success", "Account created!", [
+        {
+          text: "OK",
+          onPress: () => router.replace("/login"), // go to login after register
+        },
+      ]);
+    } catch (err: any) {
+      console.error("Error registering:", err);
+      Alert.alert(
+        "Registration failed",
+        err?.message || "Something went wrong while creating your account."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
@@ -20,23 +60,37 @@ const RegisterPage: React.FC = () => {
           placeholder="Email"
           style={styles.input}
           placeholderTextColor="#999"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
         />
         <TextInput
           placeholder="Password"
           style={styles.input}
           secureTextEntry
           placeholderTextColor="#999"
+          value={password}
+          onChangeText={setPassword}
         />
         <TextInput
           placeholder="Confirm Password"
           style={styles.input}
           secureTextEntry
           placeholderTextColor="#999"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
         />
 
-        {/* REGISTER BUTTON — does NOT route yet */}
-        <TouchableOpacity style={[styles.button, styles.registerButton]}>
-          <Text style={styles.registerText}>Register</Text>
+        {/* REGISTER BUTTON */}
+        <TouchableOpacity
+          style={[styles.button, styles.registerButton]}
+          onPress={handleRegister}
+          disabled={loading}
+        >
+          <Text style={styles.registerText}>
+            {loading ? "Creating account..." : "Register"}
+          </Text>
         </TouchableOpacity>
 
         {/* BACK BUTTON */}
@@ -87,7 +141,7 @@ const styles = StyleSheet.create({
     color: "#606162",
   },
 
-  /* REGISTER BUTTON (orange styling) */
+  /* REGISTER BUTTON (orange) */
   registerButton: {
     backgroundColor: "#FF8719",
     marginTop: 24,

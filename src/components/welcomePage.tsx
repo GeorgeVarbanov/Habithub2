@@ -1,16 +1,15 @@
-// src/components/welcomePage.tsx
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React from "react";
 import {
-    Dimensions,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 const { width, height } = Dimensions.get("window");
@@ -144,7 +143,7 @@ const styles = StyleSheet.create({
     width: width * 1,
     height: height * 0.65,
     marginBottom: verticalScale(-50),
-    marginTop: verticalScale(-85)
+    marginTop: verticalScale(-85),
   },
 
   buttonGroup: {

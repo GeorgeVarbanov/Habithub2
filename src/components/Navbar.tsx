@@ -3,26 +3,35 @@ import { View, TouchableOpacity, StyleSheet, Text } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
+type RoutePath = "/home" | "/weekly" | "/monthly" | "/profile";
+
+type NavItem = {
+  name: string;
+  route: RoutePath;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
 const Navbar = () => {
   const router = useRouter();
   const pathname = usePathname();
 
-  const navItems = [
-    { name: "Home", route: "home", icon: "home" as const },
-    { name: "Weekly", route: "weekly", icon: "calendar" as const },
-    { name: "Monthly", route: "monthly", icon: "stats-chart" as const },
-    { name: "Profile", route: "profile", icon: "person" as const },
+  const navItems: NavItem[] = [
+    { name: "Home", route: "/home", icon: "home" },
+    { name: "Weekly", route: "/weekly", icon: "calendar" },
+    { name: "Monthly", route: "/monthly", icon: "stats-chart" },
+    { name: "Profile", route: "/profile", icon: "person" },
   ];
 
   return (
     <View style={styles.navbar}>
       {navItems.map((item) => {
-        const isActive = pathname === `/${item.route}`;
+        const isActive = pathname === item.route;
+
         return (
           <TouchableOpacity
             key={item.route}
             style={styles.navItem}
-            onPress={() => router.push(item.route as any)}
+            onPress={() => router.push(item.route)}
           >
             <Ionicons
               name={item.icon}
